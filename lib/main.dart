@@ -12,13 +12,72 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppDatabase.instance.init();
   runApp(const MyApp());
+  @override
+  void dispose() {
+    _projectNameCtrl.dispose();
+    _projectHoursCtrl.dispose();
+    super.dispose();
+  }
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+    Future<void> _showCreateProjectDialog() async {
+    _projectNameCtrl.clear();
+    _projectHoursCtrl.text = '0';
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Crear proyecto'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _projectNameCtrl,
+                  decoration: const InputDecoration(labelText: 'Nombre del proyecto'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _projectHoursCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Horas proyectadas'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final name = _projectNameCtrl.text.trim();
+                final hrs = int.tryParse(_projectHoursCtrl.text.trim());
+                if (name.isEmpty || hrs == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Completa nombre y horas v�lidas')),
+                  );
+                  return;
+                }
+                await AppDatabase.instance.createProject(name: name, projectedHours: hrs);
+                final projects = await AppDatabase.instance.fetchProjects();
+                if (!mounted) return;
+                setState(() => _projects = projects);
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('Crear'),
+            ),
+          ],
+        );
+      },
+    );
+  }Widget build(BuildContext context) {
     const primaryColor = Color(0xFF0A75BC);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -137,10 +196,6 @@ class _LoginPageState extends State<LoginPage> {
         setState(() => _isLoading = false);
       }
     }
-  void _goToDashboard() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const DashboardShell()),
-    );
   }
 
   @override
@@ -201,14 +256,12 @@ class _LoginPageState extends State<LoginPage> {
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _attemptLogin(),
                     enabled: !_isLoading,
-                    onSubmitted: (_) => _goToDashboard(),
                   ),
                   const SizedBox(height: 32),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: _isLoading ? null : _attemptLogin,
-                      onPressed: _goToDashboard,
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
@@ -256,7 +309,7 @@ class _DashboardShellState extends State<DashboardShell> {
 
   List<AppUser> _teamMembers = const [];
   List<LoginEntry> _loginHistory = const [];
-  List<PunchRecord> _punches = _buildInitialPunches();
+  final List<PunchRecord> _punches = _buildInitialPunches();
 
   @override
   void initState() {
@@ -267,6 +320,63 @@ class _DashboardShellState extends State<DashboardShell> {
         _searchTerm = _searchController.text.trim();
       });
     });
+  }
+
+  Future<void> _showChangePasswordDialog() async {
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cambiar contraseña'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: newCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Nueva contraseña'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Confirmar contraseña'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final a = newCtrl.text.trim();
+              final b = confirmCtrl.text.trim();
+              if (a.isEmpty || b.isEmpty || a != b) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Las contraseñas no coinciden')),
+                );
+                return;
+              }
+              await AppDatabase.instance.updatePassword(userId: widget.user.id, newPassword: a);
+              if (!mounted) return;
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Contraseña actualizada')),
+              );
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    newCtrl.dispose();
+    confirmCtrl.dispose();
   }
 
   @override
@@ -312,7 +422,7 @@ class _DashboardShellState extends State<DashboardShell> {
     setState(() => _exporting = true);
     try {
       if (kIsWeb) {
-        throw const UnsupportedError('Exportar en web no está disponible.');
+        throw UnsupportedError('Exportar en web no está disponible.');
       }
 
       final directory = await getApplicationDocumentsDirectory();
@@ -322,7 +432,7 @@ class _DashboardShellState extends State<DashboardShell> {
         ..writeln('Colaborador,Entrada,Salida,Estado');
       for (final record in _punches) {
         buffer.writeln(
-          '${record.userName},${record.formattedEntry},${record.formattedExit},${record.status}',
+          '${record.userName},${record.formattedEntry},${record.formattedExitSafe},${record.status}',
         );
       }
       final file = File(filePath);
@@ -341,6 +451,15 @@ class _DashboardShellState extends State<DashboardShell> {
         setState(() => _exporting = false);
       }
     }
+  }
+
+  Future<void> _openFichajeControlPage() async {
+    if (!widget.user.canManageFichajes) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FichajeControlPage(user: widget.user),
+      ),
+    );
   }
 
   Future<void> _handleGenerateReport() async {
@@ -399,35 +518,6 @@ class _DashboardShellState extends State<DashboardShell> {
     }
   }
 
-  Future<void> _handleCreatePunch() async {
-    if (!widget.user.canManageFichajes) {
-      return;
-    }
-    if (_teamMembers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No hay colaboradores cargados.')),
-      );
-      return;
-    }
-
-    final result = await showDialog<PunchRecord>(
-      context: context,
-      builder: (context) => _NewPunchDialog(teamMembers: _teamMembers),
-    );
-
-    if (result != null) {
-      setState(() {
-        _punches = [result, ..._punches];
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Fichaje añadido para ${result.userName}'),
-          ),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -497,48 +587,68 @@ class _DashboardShellState extends State<DashboardShell> {
                     child: ListView(
                       padding: const EdgeInsets.only(bottom: 24),
                       children: [
-                        _DashboardDestination(
-                          icon: Icons.dashboard_outlined,
-                          label: 'Resumen',
-                          selected: _selectedIndex == 0,
-                          onTap: () => setState(() => _selectedIndex = 0),
-                        ),
+                        if (widget.user.canGenerateReports)
+                          _DashboardDestination(
+                            icon: Icons.dashboard_outlined,
+                            label: 'Resumen',
+                            selected: _selectedIndex == 0,
+                            onTap: () => setState(() => _selectedIndex = 0),
+                          ),
                         _DashboardDestination(
                           icon: Icons.access_time,
-                          label: 'Fichajes',
-                          selected: _selectedIndex == 1,
-                          onTap: () => setState(() => _selectedIndex = 1),
+                          label: 'Asignación de horas',
+                          selected: widget.user.canGenerateReports
+                              ? _selectedIndex == 1
+                              : _selectedIndex == 0,
+                          onTap: () => setState(() =>
+                              _selectedIndex = widget.user.canGenerateReports ? 1 : 0),
                         ),
-                        _DashboardDestination(
-                          icon: Icons.people_outline,
-                          label: 'Equipo',
-                          selected: _selectedIndex == 2,
-                          onTap: () => setState(() => _selectedIndex = 2),
-                        ),
-                        _DashboardDestination(
-                          icon: Icons.bar_chart_outlined,
-                          label: 'Reportes',
-                          selected: _selectedIndex == 3,
-                          onTap: () => setState(() => _selectedIndex = 3),
-                        ),
+                        if (widget.user.canGenerateReports)
+                          _DashboardDestination(
+                            icon: Icons.people_outline,
+                            label: 'Equipo',
+                            selected: _selectedIndex == 2,
+                            onTap: () => setState(() => _selectedIndex = 2),
+                          ),
+                        if (widget.user.canGenerateReports)
+                          _DashboardDestination(
+                            icon: Icons.bar_chart_outlined,
+                            label: 'Reportes',
+                            selected: _selectedIndex == 3,
+                            onTap: () => setState(() => _selectedIndex = 3),
+                          ),
                       ],
                     ),
                   ),
                   Padding(
                     padding: const EdgeInsets.all(24),
-                    child: FilledButton.tonalIcon(
-                      onPressed: () => Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(builder: (_) => const LoginPage()),
-                      ),
-                      icon: const Icon(Icons.logout),
-                      label: const Text('Cerrar sesión'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        textStyle: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _showChangePasswordDialog,
+                          icon: const Icon(Icons.lock_reset),
+                          label: const Text('Cambiar contraseña'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        FilledButton.tonalIcon(
+                          onPressed: () => Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(builder: (_) => const LoginPage()),
+                          ),
+                          icon: const Icon(Icons.logout),
+                          label: const Text('Cerrar sesión'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            textStyle: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -549,42 +659,57 @@ class _DashboardShellState extends State<DashboardShell> {
                 duration: const Duration(milliseconds: 300),
                 switchInCurve: Curves.easeOut,
                 switchOutCurve: Curves.easeIn,
-                child: [
-                  _ResumenView(
-                    key: const ValueKey('resumen'),
-                    user: widget.user,
-                    punches: _punches,
-                    teamMembers: _teamMembers,
-                    loginHistory: _loginHistory,
-                    onExport: widget.user.canExport ? _handleExport : null,
-                    isExporting: _exporting,
-                    isLoading: _loadingData,
-                  ),
-                  _FichajesView(
-                    key: const ValueKey('fichajes'),
-                    punches: _filteredPunches,
-                    searchController: _searchController,
-                    onCreatePunch:
-                        widget.user.canManageFichajes ? _handleCreatePunch : null,
-                    onExport: widget.user.canExport ? _handleExport : null,
-                    canManage: widget.user.canManageFichajes,
-                    canExport: widget.user.canExport,
-                    isExporting: _exporting,
-                  ),
-                  _EquipoView(
-                    key: const ValueKey('equipo'),
-                    teamMembers: _teamMembers,
-                    isLoading: _loadingData,
-                  ),
-                  _ReportesView(
-                    key: const ValueKey('reportes'),
-                    canGenerateReports: widget.user.canGenerateReports,
-                    onGenerateReport: widget.user.canGenerateReports
-                        ? _handleGenerateReport
-                        : null,
-                    isGenerating: _generatingReport,
-                  ),
-                ][_selectedIndex],
+                child: () {
+                  if (!widget.user.canGenerateReports) {
+                    return _FichajesView(
+                      key: const ValueKey('fichajes-only'),
+                      punches: _filteredPunches,
+                      searchController: _searchController,
+                      onCreatePunch: _openFichajeControlPage,
+                      onExport: null,
+                      canManage: true,
+                      canExport: false,
+                      isExporting: false,
+                    );
+                  }
+                  final pages = [
+                    _ResumenView(
+                      key: const ValueKey('resumen'),
+                      user: widget.user,
+                      punches: _punches,
+                      teamMembers: _teamMembers,
+                      loginHistory: _loginHistory,
+                      onExport: widget.user.canExport ? _handleExport : null,
+                      isExporting: _exporting,
+                      isLoading: _loadingData,
+                    ),
+                    _FichajesView(
+                      key: const ValueKey('fichajes'),
+                      punches: _filteredPunches,
+                      searchController: _searchController,
+                      onCreatePunch:
+                          widget.user.canManageFichajes ? _openFichajeControlPage : null,
+                      onExport: widget.user.canExport ? _handleExport : null,
+                      canManage: widget.user.canManageFichajes,
+                      canExport: widget.user.canExport,
+                      isExporting: _exporting,
+                    ),
+                    _EquipoView(
+                      key: const ValueKey('equipo'),
+                      teamMembers: _teamMembers,
+                      isLoading: _loadingData,
+                    ),
+                    _ReportesView(
+                      key: const ValueKey('reportes'),
+                      canGenerateReports: widget.user.canGenerateReports,
+                      onGenerateReport: widget.user.canGenerateReports
+                          ? _handleGenerateReport
+                          : null,
+                      isGenerating: _generatingReport,
+                    ),
+                  ];
+                  return pages[_selectedIndex];
+                }(),
               ),
             ),
           ],
@@ -977,7 +1102,7 @@ class _FichajesTable extends StatelessWidget {
               cells: [
                 DataCell(Text(record.userName, style: textStyle)),
                 DataCell(Text(record.formattedEntry, style: textStyle)),
-                DataCell(Text(record.formattedExit, style: textStyle)),
+                DataCell(Text(record.formattedExitSafe, style: textStyle)),
                 DataCell(_StatusBadge(status: record.status)),
               ],
             ),
@@ -987,19 +1112,21 @@ class _FichajesTable extends StatelessWidget {
             fontWeight: FontWeight.w700,
             color: const Color(0xFF4B4E65),
           ),
-      dataRowColor: MaterialStateProperty.resolveWith(
-        (states) => states.contains(MaterialState.hovered)
+      dataRowColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.hovered)
             ? const Color(0xFFF2F7FB)
             : Colors.white,
       ),
-      dataRowHeight: 64,
+      dataRowMinHeight: 64,
+      dataRowMaxHeight: 64,
       headingRowColor:
-          MaterialStateProperty.all(const Color(0xFFF0F3F8)),
+          WidgetStateProperty.all(const Color(0xFFF0F3F8)),
       dividerThickness: 0,
       horizontalMargin: 24,
       columnSpacing: 56,
     );
   }
+
 }
 
 class _StatusBadge extends StatelessWidget {
@@ -1089,7 +1216,7 @@ class _FichajesView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Fichajes', style: theme.textTheme.headlineMedium),
+            Text('Asignación de horas a Proyectos', style: theme.textTheme.headlineMedium),
             const SizedBox(height: 8),
             Text(
               'Gestiona entradas, salidas y pausas del personal.',
@@ -1312,7 +1439,7 @@ class _TeamCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: _statusColor().withOpacity(0.15),
+              color: _statusColor().withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
@@ -1485,6 +1612,233 @@ class _ReportCard extends StatelessWidget {
   }
 }
 
+class FichajeControlPage extends StatefulWidget {
+  const FichajeControlPage({super.key, required this.user});
+  final AppUser user;
+
+  @override
+  State<FichajeControlPage> createState() => _FichajeControlPageState();
+}
+
+class _FichajeControlPageState extends State<FichajeControlPage> {
+  bool _loading = true;
+  List<AppUser> _users = const [];
+  List<Project> _projects = const [];
+  int? _selectedUserId;
+  int? _selectedProjectId;
+  Session? _activeSession;
+  final _projectNameCtrl = TextEditingController();
+  final _projectHoursCtrl = TextEditingController(text: '0');
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      final users = await AppDatabase.instance.fetchUsers();
+      final projects = await AppDatabase.instance.fetchProjects();
+      setState(() {
+        _users = users;
+        _projects = projects;
+        _selectedUserId = users.isNotEmpty ? users.first.id : null;
+        _selectedProjectId = projects.isNotEmpty ? projects.first.id : null;
+        _loading = false;
+      });
+      if (_selectedUserId != null) {
+        final s = await AppDatabase.instance.getActiveSessionForUser(_selectedUserId!);
+        if (!mounted) return;
+        setState(() => _activeSession = s);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error cargando datos: $e')),
+      );
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _start() async {
+    if (_selectedUserId == null || _selectedProjectId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona usuario y proyecto')),
+      );
+      return;
+    }
+    // Si hay sesión activa y está pausada, reanudar
+    if (_activeSession != null && _activeSession!.status == 'paused') {
+      await AppDatabase.instance.resumeSession(_activeSession!.id);
+      final updated = await AppDatabase.instance.getActiveSessionForUser(_selectedUserId!);
+      setState(() => _activeSession = updated);
+      return;
+    }
+    // Si no hay sesión activa, iniciar nueva
+    final id = await AppDatabase.instance.startSession(
+      userId: _selectedUserId!,
+      projectId: _selectedProjectId!,
+    );
+    final sessions = await AppDatabase.instance.fetchSessions(userId: _selectedUserId!);
+    setState(() => _activeSession = sessions.firstWhere((s) => s.id == id));
+  }
+
+  Future<void> _togglePause() async {
+    if (_activeSession == null) return;
+    if (_activeSession!.status == 'running') {
+      await AppDatabase.instance.pauseSession(_activeSession!.id);
+    } else if (_activeSession!.status == 'paused') {
+      await AppDatabase.instance.resumeSession(_activeSession!.id);
+    }
+    final s = await AppDatabase.instance.getActiveSessionForUser(_selectedUserId!);
+    setState(() => _activeSession = s);
+  }
+
+  Future<void> _stop() async {
+    if (_activeSession == null) return;
+    await AppDatabase.instance.stopSession(_activeSession!.id);
+    final s = await AppDatabase.instance.getActiveSessionForUser(_selectedUserId!);
+    setState(() => _activeSession = s); // será null al estar detenida
+  }
+
+  String _statusLabel() {
+    final s = _activeSession?.status;
+    switch (s) {
+      case 'running':
+        return 'En curso';
+      case 'paused':
+        return 'Pausado';
+      case 'stopped':
+        return 'Detenido';
+      default:
+        return 'Sin sesión';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Asignación de horas a Proyectos'),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Nueva sesión de trabajo', style: theme.textTheme.headlineMedium),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            initialValue: _selectedUserId,
+                            decoration: const InputDecoration(labelText: 'Usuario'),
+                            items: _users
+                                .map((u) => DropdownMenuItem<int>(
+                                      value: u.id,
+                                      child: Text(u.displayName),
+                                    ))
+                                .toList(),
+                            onChanged: (v) async {
+                              setState(() => _selectedUserId = v);
+                              if (v != null) {
+                                final s = await AppDatabase.instance.getActiveSessionForUser(v);
+                                if (!mounted) return;
+                                setState(() => _activeSession = s);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            initialValue: _selectedProjectId,
+                            decoration: const InputDecoration(labelText: 'Proyecto'),
+                            items: _projects
+                                .map((p) => DropdownMenuItem<int>(
+                                      value: p.id,
+                                      child: Text(p.name),
+                                    ))
+                                .toList(),
+                            onChanged: (v) => setState(() => _selectedProjectId = v),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F3FB),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.info_outline, color: Color(0xFF0A75BC), size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Estado: ${_statusLabel()}',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: const Color(0xFF0A75BC),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    if (widget.user.canManageProjects &&
+                        (widget.user.username == 'valentin.porta@motitworld.com' ||
+                         widget.user.username == 'gosia@motitworld.com'))
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FilledButton.icon(
+                          onPressed: _showCreateProjectDialog,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Crear proyecto'),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: _start,
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('Iniciar'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _activeSession == null ? null : _togglePause,
+                          icon: const Icon(Icons.pause),
+                          label: const Text('Pausa'),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: _activeSession == null ? null : _stop,
+                          icon: const Icon(Icons.stop),
+                          label: const Text('Parar'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+}
+
 class _ReportRow extends StatelessWidget {
   const _ReportRow({required this.label, required this.value});
 
@@ -1569,7 +1923,7 @@ class _NewPunchDialogState extends State<_NewPunchDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<int>(
-              value: _selectedUserId,
+              initialValue: _selectedUserId,
               decoration: const InputDecoration(labelText: 'Colaborador'),
               items: widget.teamMembers
                   .map(
@@ -1603,7 +1957,7 @@ class _NewPunchDialogState extends State<_NewPunchDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _status,
+              initialValue: _status,
               decoration: const InputDecoration(labelText: 'Estado'),
               items: _statuses
                   .map(
@@ -1747,6 +2101,10 @@ class PunchRecord {
 
   String get formattedEntry => DateFormat('HH:mm').format(entryTime);
 
+  // Safe fallback-dash when no exit time
+  String get formattedExitSafe =>
+      exitTime != null ? DateFormat('HH:mm').format(exitTime!) : '-';
+
   String get formattedExit =>
       exitTime != null ? DateFormat('HH:mm').format(exitTime!) : '—';
 
@@ -1756,6 +2114,9 @@ class PunchRecord {
     }
     final duration = exitTime!.difference(entryTime);
     return duration.inMinutes / 60.0;
+  }
+}
+/*
 class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key});
 
@@ -2237,7 +2598,7 @@ class _FichajesView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Fichajes', style: theme.textTheme.headlineMedium),
+            Text('Asignación de horas a Proyectos', style: theme.textTheme.headlineMedium),
             const SizedBox(height: 8),
             Text(
               'Gestiona entradas, salidas y pausas del personal.',
@@ -2591,3 +2952,7 @@ class _ReportCard extends StatelessWidget {
     );
   }
 }
+
+*/
+
+
