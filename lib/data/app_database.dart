@@ -152,6 +152,7 @@ class AppDatabase {
           await db.execute('CREATE INDEX idx_sessions_status ON sessions(status)');
           await _seedUsers(db);
           await _seedProjects(db);
+          await _seedOrgUsers(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -352,12 +353,68 @@ class AppDatabase {
     await batch.commit(noResult: true);
   }
 
+  Future<void> _seedOrgUsers(Database db) async {
+    final inserts = [
+      {
+        'username': 'valentin.porta@motitworld.com',
+        'display_name': 'Valentín Porta',
+        'role': 'admin',
+      },
+      {
+        'username': 'alberto.leon@motitworld.com',
+        'display_name': 'Alberto León',
+        'role': 'admin',
+      },
+      {
+        'username': 'antonio.venzala@motitworld.com',
+        'display_name': 'Antonio Venzalá',
+        'role': 'admin',
+      },
+      {
+        'username': 'gosia@motitworld.com',
+        'display_name': 'Gosia Szymkowiak',
+        'role': 'admin',
+      },
+      {
+        'username': 'polina.krylnikova@motitworld.com',
+        'display_name': 'Polina Krylnikova',
+        'role': 'empleado',
+      },
+      {
+        'username': 'cristobal.cruz@motitworld.com',
+        'display_name': 'Cristóbal Cruz',
+        'role': 'empleado',
+      },
+      {
+        'username': 'alvaro.hidalgo@motitworld.com',
+        'display_name': 'Álvaro Hidalgo',
+        'role': 'empleado',
+      },
+    ];
+    final batch = db.batch();
+    for (final row in inserts) {
+      batch.insert(
+        'users',
+        {
+          'username': (row['username'] as String).toLowerCase(),
+          'password': 'admin123',
+          'display_name': row['display_name'],
+          'role': row['role'],
+          'status': 'Activo',
+          'monthly_hours': 160,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<AppUser?> authenticate(String username, String password) async {
     await _ensureInitialized();
     final results = await _database!.query(
       'users',
-      where: 'username = ? AND password = ?',
-      whereArgs: [username, password],
+      where: 'LOWER(username) = LOWER(?) AND password = ?',
+      whereArgs: [username.trim(), password],
       limit: 1,
     );
     if (results.isEmpty) {

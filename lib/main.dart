@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -12,72 +13,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppDatabase.instance.init();
   runApp(const MyApp());
-  @override
-  void dispose() {
-    _projectNameCtrl.dispose();
-    _projectHoursCtrl.dispose();
-    super.dispose();
-  }
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-    Future<void> _showCreateProjectDialog() async {
-    _projectNameCtrl.clear();
-    _projectHoursCtrl.text = '0';
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Crear proyecto'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: _projectNameCtrl,
-                  decoration: const InputDecoration(labelText: 'Nombre del proyecto'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _projectHoursCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Horas proyectadas'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final name = _projectNameCtrl.text.trim();
-                final hrs = int.tryParse(_projectHoursCtrl.text.trim());
-                if (name.isEmpty || hrs == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Completa nombre y horas válidas')),
-                  );
-                  return;
-                }
-                await AppDatabase.instance.createProject(name: name, projectedHours: hrs);
-                final projects = await AppDatabase.instance.fetchProjects();
-                if (!mounted) return;
-                setState(() => _projects = projects);
-                Navigator.of(ctx).pop();
-              },
-              child: const Text('Crear'),
-            ),
-          ],
-        );
-      },
-    );
-  }Widget build(BuildContext context) {
+  Widget build(BuildContext context) {
     const primaryColor = Color(0xFF0A75BC);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -90,36 +32,6 @@ class MyApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         scaffoldBackgroundColor: const Color(0xFFF5F6FA),
-        textTheme: const TextTheme(
-          headlineMedium: TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF1B1D29),
-          ),
-          bodyLarge: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w400,
-            color: Color(0xFF4B4E65),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE2E5ED)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE2E5ED)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: primaryColor, width: 1.4),
-          ),
-        ),
       ),
       home: const LoginPage(),
     );
@@ -151,50 +63,37 @@ class _LoginPageState extends State<LoginPage> {
 
     if (username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor, completa usuario y clave.'),
-        ),
+        const SnackBar(content: Text('Por favor, completa correo y clave.')),
       );
       return;
     }
 
     setState(() => _isLoading = true);
-
     try {
       final user = await AppDatabase.instance.authenticate(username, password);
       if (!mounted) return;
-
       if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Credenciales no vÃ¡lidas. IntÃ©ntalo de nuevo.'),
+            content: Text('Credenciales no válidas. Inténtalo de nuevo.'),
             backgroundColor: Colors.redAccent,
           ),
         );
         return;
       }
-
       await AppDatabase.instance.recordLogin(user);
       if (!mounted) return;
-
       _passwordController.clear();
-
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => DashboardShell(user: user),
-        ),
+        MaterialPageRoute(builder: (_) => DashboardShell(user: user)),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No se pudo iniciar sesiÃ³n: $error'),
-        ),
+        SnackBar(content: Text('No se pudo iniciar sesión: $error')),
       );
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -211,19 +110,15 @@ class _LoginPageState extends State<LoginPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'Control de horas',
-                    style: theme.textTheme.headlineMedium,
-                    textAlign: TextAlign.left,
-                  ),
+                  Text('Control de horas', style: theme.textTheme.headlineMedium),
                   const SizedBox(height: 12),
                   Text(
-                    'Inicia sesiÃ³n para gestionar tus jornadas de forma sencilla.',
+                    'Inicia sesión para gestionar tus jornadas de forma sencilla.',
                     style: theme.textTheme.bodyLarge,
                   ),
                   const SizedBox(height: 32),
                   Text(
-                    'Usuario',
+                    'Correo electrónico',
                     style: theme.textTheme.bodyLarge?.copyWith(
                       color: const Color(0xFF1B1D29),
                       fontWeight: FontWeight.w500,
@@ -232,9 +127,10 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 8),
                   TextField(
                     controller: _userController,
-                    decoration: const InputDecoration(
-                      hintText: 'Ingresa tu usuario',
-                    ),
+                    decoration: const InputDecoration(hintText: 'Ingresa tu correo'),
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.email],
+                    autocorrect: false,
                     textInputAction: TextInputAction.next,
                     enabled: !_isLoading,
                   ),
@@ -249,9 +145,7 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 8),
                   TextField(
                     controller: _passwordController,
-                    decoration: const InputDecoration(
-                      hintText: 'Ingresa tu clave',
-                    ),
+                    decoration: const InputDecoration(hintText: 'Ingresa tu clave'),
                     obscureText: true,
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _attemptLogin(),
@@ -262,22 +156,8 @@ class _LoginPageState extends State<LoginPage> {
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: _isLoading ? null : _attemptLogin,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        textStyle: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
                       child: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
+                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Text('Acceder'),
                     ),
                   ),
@@ -285,6 +165,11 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
         ),
       ),
     );
@@ -1697,9 +1582,79 @@ class _FichajeControlPageState extends State<FichajeControlPage> {
 
   Future<void> _stop() async {
     if (_activeSession == null) return;
-    await AppDatabase.instance.stopSession(_activeSession!.id);
+    final current = _activeSession!;
+    final start = current.startAt;
+    final now = DateTime.now();
+    final tentativeHours = now.difference(start).inMinutes / 60.0;
+
+    final project = _projects.firstWhere(
+      (p) => p.id == _selectedProjectId,
+      orElse: () => Project(id: current.projectId, name: 'Proyecto', projectedHours: 0),
+    );
+
+    final hoursCtrl = TextEditingController(text: tentativeHours.toStringAsFixed(2));
+    final confirmed = await showDialog<double?>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Confirmar horas dedicadas'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Proyecto: ' + project.name),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: hoursCtrl,
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Horas dedicadas',
+                    helperText: 'Ajusta si es necesario',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final v = double.tryParse(hoursCtrl.text.replaceAll(',', '.').trim());
+                if (v == null || v < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Introduce un numero valido de horas')),
+                  );
+                  return;
+                }
+                Navigator.of(ctx).pop(v);
+              },
+              child: const Text('Confirmar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == null) return;
+
+    await AppDatabase.instance.stopSession(current.id);
+    await AppDatabase.instance.confirmSessionHours(
+      sessionId: current.id,
+      confirmedByUserId: widget.user.id,
+      hours: confirmed,
+    );
     final s = await AppDatabase.instance.getActiveSessionForUser(_selectedUserId!);
-    setState(() => _activeSession = s); // serÃ¡ null al estar detenida
+    setState(() => _activeSession = s);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Horas confirmadas')),
+      );
+    }
   }
 
   String _statusLabel() {
