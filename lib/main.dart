@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -75,7 +74,7 @@ class _LoginPageState extends State<LoginPage> {
       if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Credenciales no válidas. Inténtalo de nuevo.'),
+            content: Text('Credenciales no vï¿½lidas. Intï¿½ntalo de nuevo.'),
             backgroundColor: Colors.redAccent,
           ),
         );
@@ -90,7 +89,7 @@ class _LoginPageState extends State<LoginPage> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo iniciar sesión: $error')),
+        SnackBar(content: Text('No se pudo iniciar sesiï¿½n: $error')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -113,12 +112,12 @@ class _LoginPageState extends State<LoginPage> {
                   Text('Control de horas', style: theme.textTheme.headlineMedium),
                   const SizedBox(height: 12),
                   Text(
-                    'Inicia sesión para gestionar tus jornadas de forma sencilla.',
+                    'Inicia sesiï¿½n para gestionar tus jornadas de forma sencilla.',
                     style: theme.textTheme.bodyLarge,
                   ),
                   const SizedBox(height: 32),
                   Text(
-                    'Correo electrónico',
+                    'Correo electrï¿½nico',
                     style: theme.textTheme.bodyLarge?.copyWith(
                       color: const Color(0xFF1B1D29),
                       fontWeight: FontWeight.w500,
@@ -170,11 +169,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
-        ),
-      ),
-    );
-  }
-}
+ 
 
 class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key, required this.user});
@@ -1324,7 +1319,7 @@ class _TeamCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: _statusColor().withValues(alpha: 0.15),
+              color: _statusColor().withOpacity(0.15),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
@@ -1546,6 +1541,73 @@ class _FichajeControlPageState extends State<FichajeControlPage> {
     }
   }
 
+  Future<void> _showCreateProjectDialog() async {
+    _projectNameCtrl.clear();
+    _projectHoursCtrl.text = '0';
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Nuevo proyecto'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _projectNameCtrl,
+                  decoration: const InputDecoration(labelText: 'Nombre del proyecto'),
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _projectHoursCtrl,
+                  decoration: const InputDecoration(labelText: 'Horas previstas (opcional)'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: false, signed: false),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final name = _projectNameCtrl.text.trim();
+                if (name.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('El nombre es obligatorio')),
+                  );
+                  return;
+                }
+                final hours = int.tryParse(_projectHoursCtrl.text.trim()) ?? 0;
+                await AppDatabase.instance.createProject(name: name, projectedHours: hours);
+                if (!mounted) return;
+                Navigator.of(ctx).pop(true);
+              },
+              child: const Text('Crear'),
+            ),
+          ],
+        );
+      },
+    );
+    if (created == true) {
+      final projects = await AppDatabase.instance.fetchProjects();
+      if (!mounted) return;
+      setState(() {
+        _projects = projects;
+        if (projects.isNotEmpty) {
+          _selectedProjectId = projects.last.id;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Proyecto creado')),
+      );
+    }
+  }
+
   Future<void> _start() async {
     if (_selectedUserId == null || _selectedProjectId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1604,7 +1666,7 @@ class _FichajeControlPageState extends State<FichajeControlPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Proyecto: ' + project.name),
+                Text('Proyecto: ${project.name}'),
                 const SizedBox(height: 12),
                 TextField(
                   controller: hoursCtrl,
@@ -1669,6 +1731,13 @@ class _FichajeControlPageState extends State<FichajeControlPage> {
       default:
         return 'Sin sesiÃ³n';
     }
+  }
+
+  @override
+  void dispose() {
+    _projectNameCtrl.dispose();
+    _projectHoursCtrl.dispose();
+    super.dispose();
   }
 
   @override
